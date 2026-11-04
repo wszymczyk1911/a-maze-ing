@@ -1,6 +1,25 @@
 import sys
+import random
+
+DIRECTIONS = [
+    (0, -1, "N"),
+    (0, 1, "S"),
+    (1, 0, "E"),
+    (-1, 0, "W")
+]
+
+OPPOSITE = {
+    "N": "S",
+    "S": "N",
+    "E": "W",
+    "W": "E"
+}
 
 
+# TODO: errors to handle:
+# -> string.split() can fail
+# -> width and height should be positive
+# -> entry and exit should be inside the maze
 class MazeConfigData:
     def __init__(self) -> None:
         self._width = None
@@ -47,6 +66,19 @@ class MazeConfigData:
         return self._perfect
 
 
+class Cell:
+    def __init__(self, x: int, y: int) -> None:
+        self.x = x
+        self.y = y
+        self.walls: dict[str, bool] = {
+            "N": True,
+            "S": True,
+            "E": True,
+            "W": True
+        }
+        self.visited = False
+
+
 def config_helper(maze_config: MazeConfigData, key: str, value: str) -> None:
     if key == "WIDTH":
         try:
@@ -61,14 +93,15 @@ def config_helper(maze_config: MazeConfigData, key: str, value: str) -> None:
             sys.stderr.write(f"Invalid config key {key}\n\n")
             return
     if key == "ENTRY":
-        x, y = key.split(",")
+        x, y = value.split(",")
+        # print(f"x: {x}, y: {y}")
         try:
             maze_config.set_entry((int(x), int(y)))
         except ValueError:
             sys.stderr.write(f"Invalid config key {key}\n\n")
             return
     if key == "EXIT":
-        x, y = key.split(",")
+        x, y = value.split(",")
         try:
             maze_config.set_exit((int(x), int(y)))
         except ValueError:
@@ -77,35 +110,46 @@ def config_helper(maze_config: MazeConfigData, key: str, value: str) -> None:
     if key == "OUTPUT_FILE":
         maze_config.set_output_file(value)
     if key == "PERFECT":
-        if value == "True" or value == "true" or value == "TRUE":
+        if value.lower() == "true":
             maze_config.set_perfect(True)
-        else:
+        elif value.lower() == "false":
             maze_config.set_perfect(False)
+        else:
+            sys.stderr.write(f"Value for key [perfect] should be either True or False\n\n")
 
 
 def check_maze_config(maze_config: MazeConfigData) -> bool:
     if maze_config.get_width() is None:
+        # print(f"width: {maze_config.get_width()}")
         return False
     if maze_config.get_height() is None:
+        # print(f"height: {maze_config.get_height()}")
         return False
     if maze_config.get_entry() is None:
+        # print(f"entry: {maze_config.get_entry()}")
         return False
     if maze_config.get_exit() is None:
+        # print(f"exit: {maze_config.get_exit()}")
         return False
     if maze_config.get_output_file() is None:
+        # print(f"output_file: {maze_config.get_output_file()}")
         return False
     if maze_config.get_perfect() is None:
+        # print(f"perfect: {maze_config.get_perfect()}")
         return False
     return True
 
-#TODO: ERROR HANDLING
+
+# TODO: ERROR HANDLING
 def config_parser() -> MazeConfigData | None:
-    data_set: set[str] = {"WIDTH", "HEIGHT", "ENRTY", "EXIT", "OUTPUT_FILE", "PERFECT"}
+    data_set: set[str] = {"WIDTH", "HEIGHT", "ENTRY", "EXIT", "OUTPUT_FILE", "PERFECT"}
     maze_config: MazeConfigData = MazeConfigData()
     with open("config.txt", encoding="utf-8") as file:
         lines = file.readlines()
         for line in lines:
             key, value = line.strip().split("=")
+            # print(f"key = {key}")
+            # print(f"value = {value}")
             if key not in data_set:
                 sys.stderr.write(f"Invalid config key {key}\n\n")
                 continue  # / sys.exit(1) ??????
@@ -118,8 +162,78 @@ def config_parser() -> MazeConfigData | None:
     return maze_config
 
 
+def print_maze(maze_grid: list[list[Cell]]) -> None:
+    height = len(maze_grid)
+    width = len(maze_grid[0])
+
+    for y in range(height):
+        top = ""
+        middle = ""
+
+        for x in range(width):
+            cell = maze_grid[y][x]
+
+            top += "+" + ("---" if cell.walls["N"] else "   ")
+            middle += ("|" if cell.walls["W"] else " ") + "   "
+
+        top += "+"
+        middle += "|"
+
+        print(top)
+        print(middle)
+
+    print("+" + "---+" * width)
+
+
+def get_unvisited_neighbors(maze_grid: list[list[Cell]], cell: Cell) \
+        -> list[tuple[Cell, str]]:
+    neighbors: list[tuple[Cell, str]] = []
+    x, y = cell.x, cell.y
+    height = len(maze_grid)
+    width = len(maze_grid[0])
+    for horizontal, vertical, direction in DIRECTIONS:
+        new_x = x + horizontal
+        new_y = y + vertical
+        if 0 <= new_x < width and 0 <= new_y < height:
+            neighbor = maze_grid[new_y][new_x]
+            if not neighbor.visited:
+                neighbors.append((neighbor, direction))
+    return neighbors
+
+
+def remove_walls(current: Cell, neighbor: Cell, direction: str) -> None:
+    current.walls[direction] = False
+    neighbor.walls[OPPOSITE[direction]] = False
+
+
+def recursive_backtracking(maze_grid: list[list[Cell]], current: Cell) -> None:
+    current.visited = True
+    while True:
+        neighbors = get_unvisited_neighbors(maze_grid, current)
+        if not neighbors:
+            return
+        neighbor, direction = random.choice(neighbors)
+        remove_walls(current, neighbor, direction)
+        recursive_backtracking(maze_grid, neighbor)
+
+
 def simple_maze_gen(maze_config: MazeConfigData) -> None:
-    pass
+    width = maze_config.get_width()
+    height = maze_config.get_height()
+    if width is None or height is None:
+        return
+    # maze_grid = [[(x, y) for x in range(width)] for y in range(height)]           -> simple grid: a list of lists
+    # for row in maze_grid:
+    #     print(row)
+    #                                                                               -> using Cells class:
+    maze_grid = [[Cell(x, y) for x in range(width)] for y in range(height)]
+    print_maze(maze_grid)
+    entry = maze_config.get_entry()
+    if entry is None:
+        sys.exit(1)
+    x, y = entry
+    recursive_backtracking(maze_grid, maze_grid[x][y])
+    print_maze(maze_grid)
 
 
 def main() -> None:
@@ -132,7 +246,6 @@ def main() -> None:
     print("Config file [OK]!")
     print("Let's generate maze! <3")
     simple_maze_gen(maze_config)
-
 
 
 if __name__ == "__main__":
